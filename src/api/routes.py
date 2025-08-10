@@ -2,7 +2,7 @@
 This module takes care of starting the API Server, Loading the DB and Adding the endpoints
 """
 from flask import Flask, request, jsonify, url_for, Blueprint
-from api.models import db, User, Planets, Characters, Starship
+from api.models import db, User, Planets, Characters, Starship, favorites_characters, favorites_planets, starships_favorites
 from api.utils import generate_sitemap, APIException
 from flask_jwt_extended import create_access_token
 from flas_bcrypt import Bcrypt, generate_password_hash, check_password_hash
@@ -108,10 +108,23 @@ def user_login():
         #Serialize for favorites of the user
         favorites_characters = [fav.serialize() for fav in user.favorites_characters.all()]
         favorites_planets = [fav.serialize() for fav in user.favorites_planets.all()]
-        favorites_starships = [fav.serialize() for fav in user.starships_favorites.all()]
+        starships_favorites = [fav.serialize() for fav in user.starships_favorites.all()]
+
+        return jsonify({
+            'token': access_token,
+            'user_id': user.id,
+            'email': user.email,
+            'username': user.username,
+            'favorite': {
+                'characters': favorites_characters,  
+                'planets': favorites_planets,
+                'starships': starships_favorites
+            }
+        })
         
     
     except Exception as e:
+        return jsonify({"msg": "Error in request data"}), 400
    
 
 #-----------------------------------Routes for Characters-----------------------------------
@@ -205,7 +218,7 @@ def add_character():
     db.session.commit()
     return jsonify(new_character.serialize()), 201
 #------------------------------------Routes for Adding Planets-----------------------------------------
-@app.route('/planets', methods=['POST'])
+@api.route('/planets', methods=['POST'])
 def add_planet():
     data = request.json
     required_fields = ('name', 'climate', 'terrain', 'population')
@@ -219,7 +232,7 @@ def add_planet():
     db.session.commit()
     return jsonify(new_planet.serialize()), 201
 #------------------------------------Routes for Adding Starships-----------------------------------------
-@app.route('/starships', methods=['POST'])
+@api.route('/starships', methods=['POST'])
 def add_starship(): 
     data = request.json
     required_fields = ('name', 'model', 'starship_class')
@@ -232,7 +245,7 @@ def add_starship():
     db.session.commit()
     return jsonify(new_starship.serialize()), 201
 #-----------------------------------Routes for Adding Favorites Planets-----------------------------------
-@app.route('/favorite/planet/<int:planet_id>', methods=['POST'])
+@api.route('/favorite/planet/<int:planet_id>', methods=['POST'])
 def add_favorite_planet(planet_id):
     user_id = request.json.get('user_id')
     if not user_id:
@@ -251,7 +264,7 @@ def add_favorite_planet(planet_id):
     return jsonify({'msg': 'Planet added to favorites'}), 201
 
 #-----------------------------------Routes for Adding Favorites Characters-----------------------------------
-@app.route('/favorite/character/<int:character_id>', methods=['POST'])
+@api.route('/favorite/character/<int:character_id>', methods=['POST'])
 def add_favorite_characther(character_id):
     user_id = request.json.get('user_id')
     if not user_id:
@@ -270,7 +283,7 @@ def add_favorite_characther(character_id):
     return jsonify({'msg': 'Character added to favorites'}), 201
 
 #-----------------------------------Routes for Adding Favorites Starships-----------------------------------
-@app.route('/favorite/starship/<int:starship_id>', methods=['POST'])
+@api.route('/favorite/starship/<int:starship_id>', methods=['POST'])
 def add_favorite_starship(starship_id):
     user_id = request.json.get('user_id')
     if not user_id:
@@ -289,7 +302,7 @@ def add_favorite_starship(starship_id):
     return jsonify({'msg': 'Starship added to favorites'}), 201
 
 #-----------------------------------Routes for Deleting Favorites Planets-----------------------------------
-@app.route('/favorite/planet/<int:planet_id>', methods=['DELETE'])
+@api.route('/favorite/planet/<int:planet_id>', methods=['DELETE'])
 def delete_favorite_planet(planet_id):
     user_id = request.json.get('user_id')
     if not user_id:
@@ -308,7 +321,7 @@ def delete_favorite_planet(planet_id):
     return jsonify({'msg': 'Planet removed from favorites'}), 200
 
 #-----------------------------------Routes for Deleting Favorites Characters-----------------------------------
-@app.route('/favorite/character/<int:character_id>', methods=['DELETE'])
+@api.route('/favorite/character/<int:character_id>', methods=['DELETE'])
 def delete_favorite_character(character_id):
     user_id = request.json.get('user_id')
     if not user_id:
@@ -327,7 +340,7 @@ def delete_favorite_character(character_id):
     return jsonify({'msg': 'Character removed from favorites'}), 200
 
 #-----------------------------------Routes for Deleting Favorites Starships-----------------------------------
-@app.route('/favorite/starship/<int:starship_id>', methods=['DELETE'])
+@api.route('/favorite/starship/<int:starship_id>', methods=['DELETE'])
 def delete_favorite_starship(starship_id):
     user_id = request.json.get('user_id')
     if not user_id:
