@@ -311,116 +311,116 @@ def get_user_profile(user_id):
         db.session.rollback()
         return jsonify({"msg": "Error retrieving user profile", "details": str(e)}), 500
 
-#-----------------------------------Routes for Adding Favorites Planets-----------------------------------
-@api.route('/favorite/planet/<int:planet_id>', methods=['POST'])
+#-----------------------------------Routes for Adding ande delete Favorites Planets-----------------------------------
+@api.route('/favorite/planet/<int:planet_id>', methods=['POST', 'DELETE'])
+@jwt_required
 def add_favorite_planet(planet_id):
-    user_id = request.json.get('user_id')
-    if not user_id:
-        return jsonify({'msg': 'User id is required'}), 400
-    
-    user = User.query.get(user_id)
-    planet = Planets.query.get(planet_id)
-    if not user or not planet:
-        return jsonify({'msg': 'User or Planet not found'}), 404
-    
-    if planet in user.favorites_planets:
-        return jsonify({'msg': 'Planet already in favorites'}), 400
-    user.favorites_planets.append(planet)
+    try:
+        current_user = get_jwt_identity()
+        user = User.query.ge(current_user['id'])
+        planet = Planets.query.get(planet_id)
 
-    db.session.commit()
-    return jsonify({'msg': 'Planet added to favorites'}), 201
+        if not user or not planet:
+            return jsonify({"msg": "User or planet not found"}), 404
+        
+        if request.method == 'POST':
+            if planet in user.favorites_planets:
+                return jsonify({"msg": "Planet already in favorites"}), 400
+            
+            if planet not in user.favorites_planets:
+                user.favorites_planets.append(planet)
+                db.session.commit()
+                
+                return jsonify({
+                    "msg": "Planet added to favorites", 
+                    "new_planet": planet.serialize()
+                }), 201
+        
+        elif request.method == 'DELETE':
+            favorites = user.favorites_planets.filter_by(id=planet_id).first()
 
-#-----------------------------------Routes for Adding Favorites Characters-----------------------------------
-@api.route('/favorite/character/<int:character_id>', methods=['POST'])
+            if not favorites:
+                return jsonify({"msg": "Planet not in favorites"}), 400
+            
+            db.session.delete(favorites)
+            db.session.commit()
+
+            return jsonify({"msg": "Planet removed from favorites"}), 200
+    
+    except Exception as e:
+        return jsonify({"msg": "Error retrieving user or planet", "details": str(e)}), 500
+
+#-----------------------------------Routes for Adding and Favorites Characters-----------------------------------
+@api.route('/favorite/character/<int:character_id>', methods=['POST', 'DELETE'])
+@jwt_required
 def add_favorite_characther(character_id):
-    user_id = request.json.get('user_id')
-    if not user_id:
-        return jsonify({'msg': 'User id es required'}), 400
-    
-    user = User.query.get(user_id)
-    character = Characters.query.get(character_id)
-    if not user or not character:
-        return jsonify({'msg': 'User or Character not found'}), 404
-    
-    if character in user.favorites_characters:
-        return jsonify({'msg': 'Character already in favorites'}), 400
-    user.favorites_characters.append(character)
+    try:
+        current_user = get_jwt_identity()
+        user = User.query.get(current_user[id])
+        character = Characters.query.get(character_id)
 
-    db.session.commit()
-    return jsonify({'msg': 'Character added to favorites'}), 201
+        if not user or not character:
+            return jsonify({"msg": "User or character not found"}), 404
+        
+        if request.methods == 'POST':
+            if character in user.favorites_characters:
+                return jsonify({"msg": "Character already in favorites"}), 400
+            
+            user.favorites_characters.append(character)
+            db.session.commit()
+            return jsonify({
+                "msg": "Character added to favorites", 
+                "new_character": character.serialize()
+            }), 201
+        
+        elif request.methods == 'DELETE':
+            character = user.favorites_characters.filter_by(id=character_id).first()
+
+            if not character:
+                return jsonify({"msg": "Character not in favorites"}), 400
+
+            db.session.delete(character)
+            db.session.commit()
+            
+            return jsonify({"msg": "Character removed from favorites"}), 200 
+    
+    except Exception as e:
+        return jsonify({"msg": "Error retrieving user or character", "details": str(e)}), 500
 
 #-----------------------------------Routes for Adding Favorites Starships-----------------------------------
 @api.route('/favorite/starship/<int:starship_id>', methods=['POST'])
+@jwt_required
 def add_favorite_starship(starship_id):
-    user_id = request.json.get('user_id')
-    if not user_id:
-        return jsonify({'msg': 'User id is required'}), 400
-    
-    user = User.query.get(user_id)
-    starship = Starship.query.get(starship_id)
-    if not user or not starship:
-        return jsonify({'msg': 'User or Starship nor found'}), 404
-    
-    if starship in user.starships_favorites:
-        return jsonify({'msg': 'Starship already in favorites'}), 400
-    user.starships_favorites.append(starship)
+    try:
+        current_user = get_jwt_identity()
+        user = User.query.get(current_user['id'])
+        starship = Starship.query.get(starship_id)
 
-    db.session.commit()
-    return jsonify({'msg': 'Starship added to favorites'}), 201
+        if not user or not starship:
+            return jsonify({"msg": "User or starship not found"}), 404
 
-#-----------------------------------Routes for Deleting Favorites Planets-----------------------------------
-@api.route('/favorite/planet/<int:planet_id>', methods=['DELETE'])
-def delete_favorite_planet(planet_id):
-    user_id = request.json.get('user_id')
-    if not user_id:
-        return jsonify({'msg': 'User id is required'}), 400
-    
-    user = User.query.get(user_id)
-    planet = Planets.query.get(planet_id)
-    if not user or not planet:
-        return jsonify({'msg': 'User or Planet not found'}), 404
-    
-    if planet not in user.favorites_planets:
-        return jsonify({'msg': 'Planet not in favorites'}), 400
-    user.favorites_planets.remove(planet)
+        if request.methods == 'POST':
+            if starship in user.starship_favorites:
+                return jsonify({"msg": "Starship already in favorites"}), 400
 
-    db.session.commit()
-    return jsonify({'msg': 'Planet removed from favorites'}), 200
+            user.starships_favorites.append(starship)
+            db.session.commit()
+           
+            return jsonify({
+                "msg": "Starship added to favorites", 
+                "new_favorite": starship.serialize()
+            }), 201
 
-#-----------------------------------Routes for Deleting Favorites Characters-----------------------------------
-@api.route('/favorite/character/<int:character_id>', methods=['DELETE'])
-def delete_favorite_character(character_id):
-    user_id = request.json.get('user_id')
-    if not user_id:
-        return jsonify({'msg': 'User id is required'}), 400
-    
-    user = User.query.get(user_id)
-    character = Characters.query.get(character_id)
-    if not user or not character:
-        return jsonify({'msg': 'User or Character not found'}), 404
-    
-    if character not in user.favorites_characters:
-        return jsonify({'msg': 'Character not in favorites'}), 400
-    user.favorites_characters.remove(character)
+        elif request.methods == 'DELETE':
+            starship = user.starships_favorites.filter_by(id=starship_id).first()
 
-    db.session.commit()
-    return jsonify({'msg': 'Character removed from favorites'}), 200
+            if not starship:
+                return jsonify({"msg": "Starship not in favorites"}), 400
 
-#-----------------------------------Routes for Deleting Favorites Starships-----------------------------------
-@api.route('/favorite/starship/<int:starship_id>', methods=['DELETE'])
-def delete_favorite_starship(starship_id):
-    user_id = request.json.get('user_id')
-    if not user_id:
-        return jsonify({'msg': 'User id is required'}), 400
-    
-    user = User.query.get(user_id)
-    starship = Starship.query.get(starship_id)
-    if not user or not starship:
-        return jsonify({'msg': 'User or Starship not found'}), 404
-    
-    if starship not in user.starships_favorites:
-        return jsonify({'msg': 'Starship not in favorites'}), 400
-    user.starships_favorites.remove(starship)
+            db.session.delete(starship)
+            db.session.commit()
 
-    db.session.commit()
-    return jsonify({'msg': 'Starship removed from favorites'}), 200
+            return jsonify({"msg": "Starship removed from favorites"}), 200
+
+    except Exception as e:
+        return jsonify({"msg": "Error retrieving user or starship", "details": str(e)}), 500
