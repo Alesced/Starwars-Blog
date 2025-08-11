@@ -99,7 +99,7 @@ def user_login():
         if not user or not bcrypt.check_password_hash(user.password, password):
             return jsonify({"msg": "Invalid credentials"}), 401
         
-        access_token = create_access_token(identity={'id': user.id})
+        access_token = create_access_token(identity=str(user.id))
 
         #Serialize for favorites of the user
         favorites_characters = [fav.serialize() for fav in user.favorites_characters.all()]
@@ -145,19 +145,25 @@ def get_all_characters():
 @jwt_required()
 def get_character_by_id(character_id):
     try:
+        # obtener el usuario actual
+        current_user_id_str = get_jwt_identity() 
+        current_user_id = int(current_user_id_str)  #convertir el id a entero
+        
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({"msg": "User not found"}), 404
+        
+        # hacer la solicitud a SWAPI para obtener los datos del personaje
+
         response = requests.get(f"https://swapi.tech/api/people/{character_id}")
 
         if response.status_code != 200:
-            return jsonify({"msg": "Character not found"}), 404
+            return jsonify({"msg": "Character not found in SWAPI"}), 404
         
         character_data = response.json()
         
-        #verificar si es favorito del usuario autenticado
-        is_favorite = False 
-        current_user = get_jwt_identity()
-        if current_user:
-            user = User.query.get(current_user['id'])
-            is_favorite = user.favorites_characters.filter_by(id=character_id).first() is not None
+
+        is_favorite = user.favorites_characters.filter_by(id=character_id).first() is not None
 
         return jsonify({
             "is_favorite": is_favorite,
@@ -189,6 +195,15 @@ def get_all_planets():
 @jwt_required()
 def get_planet_by_id(planet_id):
     try:
+        current_user = get_jwt_identity()
+        current_user_id = int(current_user) 
+
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({"msg": "User not found"}), 404
+        
+        # hacer la solicitud a SWAPI para obtener los datos del planeta
+
         response = requests.get(f"https://swapi.tech/api/planets/{planet_id}")
 
         if response.status_code != 200:
@@ -197,12 +212,7 @@ def get_planet_by_id(planet_id):
         planet_data = response.json()
 
         #verificar si es favorito del usuario autenticado
-        is_favorite = False
-        current_user = get_jwt_identity()
-
-        if current_user:
-            user = User.query.get(current_user['id'])
-            is_favorite = user.favorites_planets.filter_by(id=planet_id).first() is not None
+        is_favorite = user.favorites_planets.filter_by(id=planet_id).first() is not None
             
         return jsonify({
             "is_favorite": is_favorite,
@@ -235,6 +245,15 @@ def get_all_starships():
 @jwt_required()
 def get_starship_by_id(starship_id):
     try:
+
+        current_user = get_jwt_identity()
+        current_user_id = int(current_user)
+
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({"msg": "User not found"}), 404
+
+        # hacer la solicitud a SWAPI para obtener los datos de la nave
         response = requests.get(f"https://swapi.tech/api/starships/{starship_id}")
 
         if response.status_code != 200:
@@ -243,12 +262,7 @@ def get_starship_by_id(starship_id):
         starship_data = response.json()
         
         #verificar si es favorito del usuario autenticado
-        is_favorite = False
-        current_user = get_jwt_identity()   
-
-        if current_user:
-            user = User.query.get(current_user['id'])
-            is_favorite = user.starships_favorites.filter_by(id=starship_id).first() is not None
+        is_favorite = User.query.get(current_user_id).starships_favorites.filter_by(id=starship_id).first() is not None
             
         return jsonify({
             "is_favorite": is_favorite,
@@ -264,8 +278,9 @@ def get_starship_by_id(starship_id):
 def get_user_profile(user_id):
     try:
         current_user = get_jwt_identity()
+        current_user_id = int(current_user)  # Convertir el id a entero
         
-        if not current_user or current_user['id'] != user_id:
+        if not current_user_id != user_id:
             return jsonify({"msg": "Unauthorized access"}), 403
         
         user = User.query.get(user_id)
@@ -312,12 +327,16 @@ def get_user_profile(user_id):
 @jwt_required()
 def add_favorite_planet(planet_id):
     try:
-        current_user = get_jwt_identity()
-        user = User.query.get(current_user['id'])
-        planet = Planets.query.get(planet_id)
+        current_user = int(get_jwt_identity())  # Convertir el id a entero
+        user = User.query.get(current_user)
+        if not user:
+            return jsonify({"msg": "User not found"}), 404
+        
 
-        if not user or not planet:
-            return jsonify({"msg": "User or planet not found"}), 404
+        #verificar la existencia del planeta
+        planet = Planets.query.get(planet_id)
+        if not planet:
+            return jsonify({"msg": "Planet not found"}), 404
         
         if request.method == 'POST':
             if planet in user.favorites_planets:
@@ -333,17 +352,16 @@ def add_favorite_planet(planet_id):
                 }), 201
         
         elif request.method == 'DELETE':
-            favorites = user.favorites_planets.filter_by(id=planet_id).first()
+            favorites = user.favorites_planets.filter_by(id=planet_id).delete()
 
             if not favorites:
                 return jsonify({"msg": "Planet not in favorites"}), 400
             
-            db.session.delete(favorites)
             db.session.commit()
-
             return jsonify({"msg": "Planet removed from favorites"}), 200
     
     except Exception as e:
+        db.session.rollback()
         return jsonify({"msg": "Error retrieving user or planet", "details": str(e)}), 500
 
 #-----------------------------------Routes for Adding and Favorites Characters-----------------------------------
@@ -352,6 +370,12 @@ def add_favorite_planet(planet_id):
 def add_favorite_characther(character_id):
     try:
         current_user = get_jwt_identity()
+        current_user_id = int(current_user['id'])  # Convertir el id a entero
+        
+        if not current_user_id:
+            return jsonify({"msg": "Unauthorized access"}), 403
+        
+         # obtener el usuario actual
         user = User.query.get(current_user['id'])
         character = Characters.query.get(character_id)
 
