@@ -2,17 +2,18 @@
 This module takes care of starting the API Server, Loading the DB and Adding the endpoints
 """
 from flask import Flask, request, jsonify, url_for, Blueprint
-from api.models import db, User, Planets, Characters, Starship, favorites_characters, favorites_planets, starships_favorites
+from api.models import db, User, Planets, Characters, Starship
 from api.utils import generate_sitemap, APIException
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
-from flas_bcrypt import Bcrypt, generate_password_hash, check_password_hash
+from flask_bcrypt import Bcrypt
+import requests 
 from flask_cors import CORS
 
 api = Blueprint('api', __name__)
-
+bcrypt = Bcrypt()
 # Allow CORS requests to this API
 CORS(api)
-bcrypt = Bcrypt()
+
 
 
 @api.route('/hello', methods=['POST', 'GET'])
@@ -23,21 +24,6 @@ def handle_hello():
     }
 
     return jsonify(response_body), 200
-
-#-----------------------------------Routes for token generation-------------------------------------
-@api.route('/token', methods=['POST'])
-def generate_token():
-    data = request.get_json()
-    email = data.get('email')
-    username = data.get('username')
-    password = data.get('password')
-
-    user = User.query.filter_by(email=email, username=username, password=password).first()
-    if not user:
-        return jsonify({"msg": "Invalid credentials"}), 401
-    
-    access_token = create_access_token(identity={'id': user.id})
-    return jsonify({'token': access_token, 'user_id': user.id}), 200
 
 #-----------------------------------Routes for register-------------------------------------
 @api.route('/register', methods=['POST'])
@@ -50,15 +36,24 @@ def user_register():
         first_name = data.get('first_name')
         last_name = data.get('last_name')
 
-        if not [email, password, username, first_name, last_name]:
-            return jsonify({"msg": "All fields are required"}), 400
+        required_fields = ['email', 'password', 'username', 'first_name', 'last_name']
 
-        if User.query.filter_by(email=email).firtst():
+        if not all(field in data for field in required_fields):
+            return jsonify({"msg": "All fields are required"}), 400
+        
+        email = data['email']
+        password = data['password']
+        username = data['username']
+        first_name = data['first_name']
+        last_name = data['last_name']
+
+        if User.query.filter_by(email=email).first():
             return jsonify({'msg': 'Email already exists'}), 400
         if User.query.filter_by(username=username).first():
             return jsonify({'msg': 'Username already exists'}), 400
 
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+        
         new_user = User(
             email=email,
             password=hashed_password,
@@ -76,15 +71,16 @@ def user_register():
             'msg': 'User registered successfully',
             'user': {
                 'id': new_user.id,
-                'email': email,
-                'username': username,
-                'first_name': first_name,
-                'last_name': last_name
-            }
+                'email': new_user.email,
+                'username': new_user.username,
+                'first_name': new_user.first_name,
+                'last_name': new_user.last_name
+            },
         }), 201
 
     except Exception as e:
-        return jsonify({"msg": "Error in request data", "details": str(e)}), 400
+        db.session.rollback()
+        return jsonify({"msg": "Error in request data", "details": str(e)}), 500
 
 #-----------------------------------Routes for Login-----------------------------------
 @api.route(('/login'), methods=['POST'])
@@ -124,15 +120,15 @@ def user_login():
         
     
     except Exception as e:
-        return jsonify({"msg": "Error in request data", "details": str(e)}), 400
+        return jsonify({"msg": "Login failed", "details": str(e)}), 500
    
 
 #-----------------------------------Routes for Characters-----------------------------------
 @api.route('/characters', methods=['GET'])
-@jwt_required
+@jwt_required()
 def get_all_characters():
     try:
-        response = request.get(f"https://swapi.tech/api/people/")
+        response = requests.get(f"https://swapi.tech/api/people/")
 
         if response.status_code != 200:
             return jsonify({"msg": "Error fetching characters"}), response.status_code
@@ -146,10 +142,10 @@ def get_all_characters():
 
 #-----------------------------------Routes for Characters by ID-----------------------------------
 @api.route('/characters/<int:character_id>', methods=['GET'])
-@jwt_required
+@jwt_required()
 def get_character_by_id(character_id):
     try:
-        response = request.get(f"https://swapi.tech/api/people/{character_id}")
+        response = requests.get(f"https://swapi.tech/api/people/{character_id}")
 
         if response.status_code != 200:
             return jsonify({"msg": "Character not found"}), 404
@@ -173,10 +169,10 @@ def get_character_by_id(character_id):
 
 #-----------------------------------Routes for Planets-----------------------------------
 @api.route('/planets', methods=['GET'])
-@jwt_required
+@jwt_required()
 def get_all_planets():
     try:
-        response = request.get("https://swapi.tech/api/planets/")
+        response = requests.get("https://swapi.tech/api/planets/")
 
         if response.status_code != 200:
             return jsonify({'msg': 'Error fetching planets'}), response.status_code
@@ -190,10 +186,10 @@ def get_all_planets():
 
 #-----------------------------------Routes for Planets by ID-----------------------------------
 @api.route('/planets/<int:planet_id>', methods=['GET'])
-@jwt_required
+@jwt_required()
 def get_planet_by_id(planet_id):
     try:
-        response = request.get(f"https://swapi.tech/api/planets/{planet_id}")
+        response = requests.get(f"https://swapi.tech/api/planets/{planet_id}")
 
         if response.status_code != 200:
             return jsonify({"msg": "Planet not found"}), 404
@@ -218,10 +214,10 @@ def get_planet_by_id(planet_id):
 
 #-----------------------------------Routes for Starships-----------------------------------
 @api.route('/starships', methods=['GET'])
-@jwt_required
+@jwt_required()
 def get_all_starships():
     try:
-        response = request.get("https://swapi.tech/api/starships/")
+        response = requests.get("https://swapi.tech/api/starships/")
 
         if response.status_code != 200:
             return jsonify({"msg": "Error fetching starships"}), response.status_code
@@ -236,10 +232,10 @@ def get_all_starships():
 
 #-----------------------------------Routes for Starships by ID-----------------------------------
 @api.route('/starships/<int:starship_id>', methods=['GET'])
-@jwt_required
+@jwt_required()
 def get_starship_by_id(starship_id):
     try:
-        response = request.get(f"https://swapi.tech/api/starships/{starship_id}")
+        response = requests.get(f"https://swapi.tech/api/starships/{starship_id}")
 
         if response.status_code != 200:
             return jsonify({"msg": "Starship not found"}), 404
@@ -264,7 +260,7 @@ def get_starship_by_id(starship_id):
 
 #-----------------------------------Routes for User Profile-----------------------------------
 @api.route('/users/<int:user_id>', methods=['GET', 'PUT'])
-@jwt_required
+@jwt_required()
 def get_user_profile(user_id):
     try:
         current_user = get_jwt_identity()
@@ -277,10 +273,10 @@ def get_user_profile(user_id):
         if not user:
             return jsonify({"msg": "User not found"}), 404
         
-        if request.methods == 'GET':
+        if request.method == 'GET':
             return jsonify(user.serialize()), 200
         
-        elif request.methods == 'PUT':
+        elif request.method == 'PUT':
             data = request.json
             if not data:
                 return jsonify({"msg": "No data provided"}), 400
@@ -313,11 +309,11 @@ def get_user_profile(user_id):
 
 #-----------------------------------Routes for Adding ande delete Favorites Planets-----------------------------------
 @api.route('/favorite/planet/<int:planet_id>', methods=['POST', 'DELETE'])
-@jwt_required
+@jwt_required()
 def add_favorite_planet(planet_id):
     try:
         current_user = get_jwt_identity()
-        user = User.query.ge(current_user['id'])
+        user = User.query.get(current_user['id'])
         planet = Planets.query.get(planet_id)
 
         if not user or not planet:
@@ -352,17 +348,17 @@ def add_favorite_planet(planet_id):
 
 #-----------------------------------Routes for Adding and Favorites Characters-----------------------------------
 @api.route('/favorite/character/<int:character_id>', methods=['POST', 'DELETE'])
-@jwt_required
+@jwt_required()
 def add_favorite_characther(character_id):
     try:
         current_user = get_jwt_identity()
-        user = User.query.get(current_user[id])
+        user = User.query.get(current_user['id'])
         character = Characters.query.get(character_id)
 
         if not user or not character:
             return jsonify({"msg": "User or character not found"}), 404
         
-        if request.methods == 'POST':
+        if request.method == 'POST':
             if character in user.favorites_characters:
                 return jsonify({"msg": "Character already in favorites"}), 400
             
@@ -373,7 +369,7 @@ def add_favorite_characther(character_id):
                 "new_character": character.serialize()
             }), 201
         
-        elif request.methods == 'DELETE':
+        elif request.method == 'DELETE':
             character = user.favorites_characters.filter_by(id=character_id).first()
 
             if not character:
@@ -389,7 +385,7 @@ def add_favorite_characther(character_id):
 
 #-----------------------------------Routes for Adding Favorites Starships-----------------------------------
 @api.route('/favorite/starship/<int:starship_id>', methods=['POST'])
-@jwt_required
+@jwt_required()
 def add_favorite_starship(starship_id):
     try:
         current_user = get_jwt_identity()
@@ -399,7 +395,7 @@ def add_favorite_starship(starship_id):
         if not user or not starship:
             return jsonify({"msg": "User or starship not found"}), 404
 
-        if request.methods == 'POST':
+        if request.method == 'POST':
             if starship in user.starship_favorites:
                 return jsonify({"msg": "Starship already in favorites"}), 400
 
@@ -411,7 +407,7 @@ def add_favorite_starship(starship_id):
                 "new_favorite": starship.serialize()
             }), 201
 
-        elif request.methods == 'DELETE':
+        elif request.method == 'DELETE':
             starship = user.starships_favorites.filter_by(id=starship_id).first()
 
             if not starship:
