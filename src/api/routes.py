@@ -4,7 +4,7 @@ This module takes care of starting the API Server, Loading the DB and Adding the
 from flask import Flask, request, jsonify, url_for, Blueprint
 from api.models import db, User, Planets, Characters, Starship, favorites_characters, favorites_planets, starships_favorites
 from api.utils import generate_sitemap, APIException
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from flas_bcrypt import Bcrypt, generate_password_hash, check_password_hash
 from flask_cors import CORS
 
@@ -84,7 +84,7 @@ def user_register():
         }), 201
 
     except Exception as e:
-        return jsonify({"msg": "Error in request data"}), 400
+        return jsonify({"msg": "Error in request data", "details": str(e)}), 400
 
 #-----------------------------------Routes for Login-----------------------------------
 @api.route(('/login'), methods=['POST'])
@@ -124,126 +124,193 @@ def user_login():
         
     
     except Exception as e:
-        return jsonify({"msg": "Error in request data"}), 400
+        return jsonify({"msg": "Error in request data", "details": str(e)}), 400
    
 
 #-----------------------------------Routes for Characters-----------------------------------
 @api.route('/characters', methods=['GET'])
+@jwt_required
 def get_all_characters():
-    characthers = Characters.query.all()
-    return jsonify([characters.serialize() for characters in characthers])
+    try:
+        response = request.get(f"https://swapi.tech/api/people/")
+
+        if response.status_code != 200:
+            return jsonify({"msg": "Error fetching characters"}), response.status_code
+        
+        characters_data = response.json().get('results', [])
+        
+        return jsonify(characters_data), 200
+
+    except Exception as e:
+        return jsonify({"msg": "Error retrieving characters", "details": str(e)}), 500
 
 #-----------------------------------Routes for Characters by ID-----------------------------------
-@api.route('/characters/>int:character_id', methods=['GET'])
+@api.route('/characters/<int:character_id>', methods=['GET'])
+@jwt_required
 def get_character_by_id(character_id):
-    character = Characters.query.get(character_id)
-    if not character:
-        return jsonify({"msg": "Character not found"}), 404
-    return jsonify(character.serialize()), 200
+    try:
+        response = request.get(f"https://swapi.tech/api/people/{character_id}")
+
+        if response.status_code != 200:
+            return jsonify({"msg": "Character not found"}), 404
+        
+        character_data = response.json()
+        
+        #verificar si es favorito del usuario autenticado
+        is_favorite = False 
+        current_user = get_jwt_identity()
+        if current_user:
+            user = User.query.get(current_user['id'])
+            is_favorite = user.favorites_characters.filter_by(id=character_id).first() is not None
+
+        return jsonify({
+            "is_favorite": is_favorite,
+            "character": character_data
+        }), 200
+
+    except Exception as e:
+        return jsonify({"msg": "Error retrieving character", "details": str(e)}), 500
 
 #-----------------------------------Routes for Planets-----------------------------------
 @api.route('/planets', methods=['GET'])
+@jwt_required
 def get_all_planets():
-    planets = Planets.query.all()
-    return jsonify([planets.serialize() for planets in planets]), 200
+    try:
+        response = request.get("https://swapi.tech/api/planets/")
+
+        if response.status_code != 200:
+            return jsonify({'msg': 'Error fetching planets'}), response.status_code
+        
+        planets_data = response.json().get('results', [])
+
+        return jsonify(planets_data), 200
+    
+    except Exception as e:
+        return jsonify({"msg": "Error retrieving planets", "details": str(e)}), 500
 
 #-----------------------------------Routes for Planets by ID-----------------------------------
 @api.route('/planets/<int:planet_id>', methods=['GET'])
+@jwt_required
 def get_planet_by_id(planet_id):
-    planet = Planets.query.get(planet_id)
-    if not planet:
-        return jsonify({"msg": "Planet not found"}), 404
-    return jsonify(planet.serialize()), 200
+    try:
+        response = request.get(f"https://swapi.tech/api/planets/{planet_id}")
+
+        if response.status_code != 200:
+            return jsonify({"msg": "Planet not found"}), 404
+        
+        planet_data = response.json()
+
+        #verificar si es favorito del usuario autenticado
+        is_favorite = False
+        current_user = get_jwt_identity()
+
+        if current_user:
+            user = User.query.get(current_user['id'])
+            is_favorite = user.favorites_planets.filter_by(id=planet_id).first() is not None
+            
+        return jsonify({
+            "is_favorite": is_favorite,
+            "planet": planet_data
+        }), 200
+
+    except Exception as e:
+        return jsonify({"msg": "Error retrieving planet", "details": str(e)}), 500
 
 #-----------------------------------Routes for Starships-----------------------------------
 @api.route('/starships', methods=['GET'])
+@jwt_required
 def get_all_starships():
-    starships = Starship.query.all()
-    return jsonify([starship.serialize() for starship in starships]), 200
+    try:
+        response = request.get("https://swapi.tech/api/starships/")
+
+        if response.status_code != 200:
+            return jsonify({"msg": "Error fetching starships"}), response.status_code
+        
+        starships_data = response.json().get('results', [])
+
+        return jsonify(starships_data), 200
+    
+    except Exception as e:
+        return jsonify({"msg": "Error retrieving starships", "details": str(e)}), 500
+    
 
 #-----------------------------------Routes for Starships by ID-----------------------------------
 @api.route('/starships/<int:starship_id>', methods=['GET'])
+@jwt_required
 def get_starship_by_id(starship_id):
-    starship = Starship.query.get(starship_id)
-    if not starship:
-        return jsonify({"msg": "Starship not found"}), 404
-    return jsonify(starship.serialize()), 200
+    try:
+        response = request.get(f"https://swapi.tech/api/starships/{starship_id}")
 
-#-----------------------------------Routes for User-----------------------------------
-@api.route('/users', methods=['GET'])
-def get_all_users():
-    users = User.query.all()
-    return jsonify([user.serialize() for user in users]), 200
+        if response.status_code != 200:
+            return jsonify({"msg": "Starship not found"}), 404
+        
+        starship_data = response.json()
+        
+        #verificar si es favorito del usuario autenticado
+        is_favorite = False
+        current_user = get_jwt_identity()   
 
-#-----------------------------------Routes for User Favorites List-----------------------------------
-@api.route('/users/<int:user_id>/favorites', methods=['GET'])
-def get_favorites(user_id):
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"msg": "User not found"}), 404
+        if current_user:
+            user = User.query.get(current_user['id'])
+            is_favorite = user.starships_favorites.filter_by(id=starship_id).first() is not None
+            
+        return jsonify({
+            "is_favorite": is_favorite,
+            "starship": starship_data
+        }), 200
     
-    favorites = {
-    "characters": [c.serialize() for c in user.favorites_characters.all()],
-    "planets": [p.serialize() for p in user.favorites_planets.all()],
-    "starships": [s.serialize() for s in user.starships_favorites.all()]
-}
-    return jsonify(favorites), 200
-#-----------------------------------Routes for Adding User-----------------------------------
-@api.route('/users', methods=['POST'])
-def add_user():
-    data = request.json
-    required_fields = ('email', 'password', 'first_name', 'last_name')
-    if not data or not all(field in data for field in required_fields):
-        return jsonify({'msg': 'All fields are required'}), 400
-    new_user = User(email=data['email'],
-                    password=data['password'],
-                    first_name=data['first_name'],
-                    last_name=data['last_name'])
-    db.session.add(new_user)
-    db.session.commit()
-    return jsonify(new_user.serialize()), 201
+    except Exception as e:
+        return jsonify({"msg": "Error retrieving starship", "details": str(e)}), 500
 
-#------------------------------------Routes for Adding Characters-----------------------------------------
-@api.route('/characters', methods=['POST'])
-def add_character():
-    data = request.json
-    required_fields = ('name','species' 'description', 'homeworld')
-    if not data or not all(field in data for field in required_fields):
-        return jsonify({'msg': 'All fields are required'}), 400
-    new_character = Characters(name=data['name'],
-                              species=data['species'],
-                              description=data.get('description'),
-                              homeworld=data.get('homeworld'))
-    db.session.add(new_character)
-    db.session.commit()
-    return jsonify(new_character.serialize()), 201
-#------------------------------------Routes for Adding Planets-----------------------------------------
-@api.route('/planets', methods=['POST'])
-def add_planet():
-    data = request.json
-    required_fields = ('name', 'climate', 'terrain', 'population')
-    if not data or not all(field in data for field in required_fields):
-        return jsonify({'msg': 'All fields are required'}), 400
-    new_planet = Planets(name=data['name'],
-                        climate=data['climate'],
-                        terrain=data['terrain'],
-                        population=data['population'])
-    db.session.add(new_planet)
-    db.session.commit()
-    return jsonify(new_planet.serialize()), 201
-#------------------------------------Routes for Adding Starships-----------------------------------------
-@api.route('/starships', methods=['POST'])
-def add_starship(): 
-    data = request.json
-    required_fields = ('name', 'model', 'starship_class')
-    if not data or not all(field in data for field in required_fields):
-        return jsonify({'msg': 'All fields are required'}), 400
-    new_starship = Starship(name=data['name'],
-                            model=data['model'],
-                            starship_class=data['starship_class'])
-    db.session.add(new_starship)
-    db.session.commit()
-    return jsonify(new_starship.serialize()), 201
+#-----------------------------------Routes for User Profile-----------------------------------
+@api.route('/users/<int:user_id>', methods=['GET', 'PUT'])
+@jwt_required
+def get_user_profile(user_id):
+    try:
+        current_user = get_jwt_identity()
+        
+        if not current_user or current_user['id'] != user_id:
+            return jsonify({"msg": "Unauthorized access"}), 403
+        
+        user = User.query.get(user_id)
+
+        if not user:
+            return jsonify({"msg": "User not found"}), 404
+        
+        if request.methods == 'GET':
+            return jsonify(user.serialize()), 200
+        
+        elif request.methods == 'PUT':
+            data = request.json
+            if not data:
+                return jsonify({"msg": "No data provided"}), 400
+            
+            updated_fields = ['email', 'username', 'first_name', 'last_name']
+
+            updated = False
+
+            for fields in updated_fields:
+                if fields in data:
+                    current_value = getattr(user, fields)
+                    new_value = data[fields]
+
+                    if current_value != new_value:
+                        setattr(user, fields, new_value)
+                        updated = True
+
+            if updated:
+                db.session.commit()
+                return jsonify({
+                    "msg": "User profile updated successfully", 
+                    "user": user.serialize()
+                }), 200
+            else:
+                return jsonify({"msg": "No changes detected"}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"msg": "Error retrieving user profile", "details": str(e)}), 500
+
 #-----------------------------------Routes for Adding Favorites Planets-----------------------------------
 @api.route('/favorite/planet/<int:planet_id>', methods=['POST'])
 def add_favorite_planet(planet_id):
