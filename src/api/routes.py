@@ -4,8 +4,9 @@ This module takes care of starting the API Server, Loading the DB and Adding the
 from flask import Flask, request, jsonify, url_for, Blueprint
 from api.models import db, User, favorites_characters, favorites_planets, favorites_starships
 from api.utils import generate_sitemap, APIException
-from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, verify_jwt_in_request
 from flask_bcrypt import Bcrypt
+from functools import wraps
 import requests
 from flask_cors import CORS
 
@@ -13,6 +14,21 @@ api = Blueprint('api', __name__)
 bcrypt = Bcrypt()
 # Allow CORS requests to this API
 CORS(api)
+
+def admin_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        verify_jwt_in_request()
+        current_user = get_jwt_identity()
+
+        user = User.query.get(current_user)
+        if not user or not user.is_admin:
+            return jsonify({"msg": "Unauthorized access"}), 403
+
+        return fn(*args, **kwargs)
+
+    return wrapper
+
 
 
 @api.route('/hello', methods=['POST', 'GET'])
@@ -25,8 +41,6 @@ def handle_hello():
     return jsonify(response_body), 200
 
 # -----------------------------------Routes for register-------------------------------------
-
-
 @api.route('/register', methods=['POST'])
 def user_register():
     try:
@@ -62,7 +76,8 @@ def user_register():
             password=hashed_password,
             username=username,
             first_name=first_name,
-            last_name=last_name
+            last_name=last_name,
+            is_admin=False,
         )
         db.session.add(new_user)
         db.session.commit()
@@ -77,7 +92,8 @@ def user_register():
                 'email': new_user.email,
                 'username': new_user.username,
                 'first_name': new_user.first_name,
-                'last_name': new_user.last_name
+                'last_name': new_user.last_name,
+                'is_admin': new_user.is_admin
             },
         }), 201
 
@@ -86,8 +102,6 @@ def user_register():
         return jsonify({"msg": "Error in request data", "details": str(e)}), 500
 
 # -----------------------------------Routes for Login-----------------------------------
-
-
 @api.route(('/login'), methods=['POST'])
 def user_login():
     try:
@@ -108,27 +122,27 @@ def user_login():
         access_token = create_access_token(identity=str(user.id))
 
         # Fetch user's favorite characters, planets, and starships
-        result = db.session.execute(
+        fav_characters = db.session.execute(
             favorites_characters.select().where(
                 favorites_characters.c.user_id == user.id
             )
         )
-        favorites_characters = [row.swapi_characters_id for row in result]
+        fav_chars_list = [row.swapi_characters_id for row in fav_characters]
 
-        result = db.session.execute(
+        fav_planets = db.session.execute(
             favorites_planets.select().where(
                 favorites_planets.c.user_id == user.id
             )
         )
 
-        favorites_planets = [row.swapi_planet_id for row in result]
+        fav_planets_list = [row.swapi_planet_id for row in fav_planets]
 
-        result = db.session.execute(
+        fav_starships = db.session.execute(
             favorites_starships.select().where(
                 favorites_starships.c.user_id == user.id
             )
         )
-        starships_favorites = [row.swapi_starship_id for row in result]
+        fav_starhips_list = [row.swapi_starship_id for row in fav_starships]
 
         # Return the access token and user information
 
@@ -138,9 +152,9 @@ def user_login():
             'email': user.email,
             'username': user.username,
             'favorite': {
-                'characters': favorites_characters,
-                'planets': favorites_planets,
-                'starships': starships_favorites
+                'characters': fav_chars_list,
+                'planets': fav_planets_list,
+                'starships': fav_starhips_list
             }
         })
 
@@ -166,8 +180,6 @@ def get_all_characters():
         return jsonify({"msg": "Error retrieving characters", "details": str(e)}), 500
 
 # -----------------------------------Routes for Characters by ID-----------------------------------
-
-
 @api.route('/characters/<int:character_id>', methods=['GET'])
 @jwt_required()
 def get_character_by_id(character_id):
@@ -202,8 +214,6 @@ def get_character_by_id(character_id):
         return jsonify({"msg": "Error retrieving character", "details": str(e)}), 500
 
 # -----------------------------------Routes for Planets-----------------------------------
-
-
 @api.route('/planets', methods=['GET'])
 @jwt_required()
 def get_all_planets():
@@ -221,8 +231,6 @@ def get_all_planets():
         return jsonify({"msg": "Error retrieving planets", "details": str(e)}), 500
 
 # -----------------------------------Routes for Planets by ID-----------------------------------
-
-
 @api.route('/planets/<int:planet_id>', methods=['GET'])
 @jwt_required()
 def get_planet_by_id(planet_id):
@@ -256,8 +264,6 @@ def get_planet_by_id(planet_id):
         return jsonify({"msg": "Error retrieving planet", "details": str(e)}), 500
 
 # -----------------------------------Routes for Starships-----------------------------------
-
-
 @api.route('/starships', methods=['GET'])
 @jwt_required()
 def get_all_starships():
@@ -310,33 +316,56 @@ def get_starship_by_id(starship_id):
         return jsonify({"msg": "Error retrieving starship", "details": str(e)}), 500
 
 # -----------------------------------Routes for User Profile-----------------------------------
-
-
 @api.route('/users/<int:user_id>', methods=['GET', 'PUT'])
 @jwt_required()
 def get_user_profile(user_id):
     try:
-        current_user = get_jwt_identity()
-        current_user_id = int(current_user)  # Convertir el id a entero
+        current_user = int(get_jwt_identity()) # Convertir el id a entero
 
-        if not current_user_id != user_id:
+        if current_user != user_id:
             return jsonify({"msg": "Unauthorized access"}), 403
 
         user = User.query.get(user_id)
-
         if not user:
             return jsonify({"msg": "User not found"}), 404
+        
+        #obtener los favoritos del usuario
+        fav_chars = db.session.execute(
+            favorites_characters.select().where(
+                favorites_characters.c.user_id == user_id
+            )
+        ).fetchall()
+        fav_chars_list = [row.swapi_characters_id for row in fav_chars]
+
+        fav_planets = db.session.execute(
+            favorites_planets.select().where(
+                favorites_planets.c.user_id == user_id
+            )
+        ).fetchall()
+        fav_planets_list = [row.swapi_planet_id for row in fav_planets]
+
+        fav_starships = db.session.execute(
+            favorites_starships.select().where(
+                favorites_starships.c.user_id == user_id
+            )
+        ).fetchall()
+        fav_starships_list = [row.swapi_starship_id for row in fav_starships]
 
         if request.method == 'GET':
-            return jsonify(user.serialize()), 200
+            user_data = user.serialize()
+            user_data['favorites'] = {
+                'characters': fav_chars_list,
+                'planets': fav_planets_list,
+                'starships': fav_starships_list
+            }
+            return jsonify(user_data), 200
 
         elif request.method == 'PUT':
-            data = request.json
+            data = request.json()
             if not data:
                 return jsonify({"msg": "No data provided"}), 400
 
             updated_fields = ['email', 'username', 'first_name', 'last_name']
-
             updated = False
 
             for fields in updated_fields:
@@ -393,7 +422,7 @@ def add_favorite_planet(planet_id):
                 )
             )
             db.session.commit()
-            return jsonify({"msg": "Planet added to favorites"}), 201
+            return jsonify({"msg": "Planet added to favorites", "planet": planet_id}), 201
 
         elif request.method == 'DELETE':
             result = db.session.execute(
@@ -412,87 +441,166 @@ def add_favorite_planet(planet_id):
         db.session.rollback()
         return jsonify({"msg": "Error retrieving user or planet", "details": str(e)}), 500
 
-# -----------------------------------Routes for Adding and Favorites Characters-----------------------------------
+# -----------------------------------Routes for Adding and delete Favorites Characters-----------------------------------
 @api.route('/favorite/character/<int:character_id>', methods=['POST', 'DELETE'])
 @jwt_required()
 def add_favorite_characther(character_id):
     try:
-        current_user = get_jwt_identity()
-        current_user_id = int(current_user['id'])  # Convertir el id a entero
-
-        if not current_user_id:
-            return jsonify({"msg": "Unauthorized access"}), 403
-
-         # obtener el usuario actual
-        user = User.query.get(current_user['id'])
-        character = Characters.query.get(character_id)
-
-        if not user or not character:
-            return jsonify({"msg": "User or character not found"}), 404
+        current_user = int(get_jwt_identity())  # Convertir el id a entero
+        user = User.query.get(current_user)
+        if not current_user:
+            return jsonify({"msg": "User not found"}), 404
+        
+        # Usar character_id para la petición a SWAPI
+        response = requests.get(f"https://swapi.tech/api/people/{character_id}")
+        if response.status_code != 200:
+            return jsonify({"msg": "Character not found in SWAPI"}), 404
 
         if request.method == 'POST':
-            if character in user.favorites_characters:
+            
+            exists = db.session.execute(
+                favorites_characters.select().where(
+                    favorites_characters.c.user_id == current_user,
+                    favorites_characters.c.swapi_characters_id == character_id
+                )
+            ).first()
+              
+            if exists:
                 return jsonify({"msg": "Character already in favorites"}), 400
-
-            user.favorites_characters.append(character)
+            
+            db.session.execute(
+                favorites_characters.insert().values(
+                    user_id=current_user,
+                    swapi_characters_id=character_id
+                )
+            )
             db.session.commit()
-            return jsonify({
-                "msg": "Character added to favorites",
-                "new_character": character.serialize()
-            }), 201
-
+            
+            return jsonify(
+                {"msg": "Character added to favorites", "character_id": character_id}
+            )
+            
         elif request.method == 'DELETE':
-            character = user.favorites_characters.filter_by(
-                id=character_id).first()
-
-            if not character:
+            result = db.session.execute(
+                favorites_characters.delete().where(
+                    favorites_characters.c.user_id == current_user,
+                    favorites_characters.c.swapi_characters_id == character_id
+            )
+        )
+            if result.rowcount == 0:
                 return jsonify({"msg": "Character not in favorites"}), 400
 
-            db.session.delete(character)
             db.session.commit()
-
             return jsonify({"msg": "Character removed from favorites"}), 200
-
+        
     except Exception as e:
         return jsonify({"msg": "Error retrieving user or character", "details": str(e)}), 500
 
-# -----------------------------------Routes for Adding Favorites Starships-----------------------------------
-
-
-@api.route('/favorite/starship/<int:starship_id>', methods=['POST'])
+# -----------------------------------Routes for Adding and delete Favorites Starships-----------------------------------
+@api.route('/favorite/starship/<int:starship_id>', methods=['POST', 'DELETE'])
 @jwt_required()
 def add_favorite_starship(starship_id):
     try:
-        current_user = get_jwt_identity()
-        user = User.query.get(current_user['id'])
-        starship = Starship.query.get(starship_id)
-
-        if not user or not starship:
-            return jsonify({"msg": "User or starship not found"}), 404
+        current_user = int(get_jwt_identity()) # Convertir el id a entero
+        user = User.query.get(current_user)
+        if not current_user: 
+            return jsonify({"msg": "User not found"}), 404
+        
+        # Usar starship_id para la petición a SWAPI
+        response = requests.get(f"https://swapi.tech/api/starships/{starship_id}")
+        if response.status_code != 200:
+            return jsonify({"msg": "Starship not found in SWAPI"}), 404
 
         if request.method == 'POST':
-            if starship in user.starship_favorites:
+            exists = db.session.execute(
+                favorites_starships.select().where(
+                    favorites_starships.c.user_id == current_user,
+                    favorites_starships.c.swapi_starship_id == starship_id
+                )
+            ).first()
+
+            if exists:
                 return jsonify({"msg": "Starship already in favorites"}), 400
-
-            user.starships_favorites.append(starship)
+            
+            db.session.execute(
+                favorites_starships.insert().values(
+                    user_id=current_user,
+                    swapi_starship_id=starship_id
+                )
+            )
             db.session.commit()
-
-            return jsonify({
-                "msg": "Starship added to favorites",
-                "new_favorite": starship.serialize()
-            }), 201
+            
+            return jsonify(
+                {"msg": "Starship added to favorites", "starship_id": starship_id}
+            )
 
         elif request.method == 'DELETE':
-            starship = user.starships_favorites.filter_by(
-                id=starship_id).first()
-
-            if not starship:
+            results = db.session.execute(
+                favorites_starships.delete().where(
+                    favorites_starships.c.user_id == current_user,
+                    favorites_starships.c.swapi_starship_id == starship_id
+                )
+            )
+            if results.rowcount == 0:
                 return jsonify({"msg": "Starship not in favorites"}), 400
-
-            db.session.delete(starship)
+            
             db.session.commit()
-
             return jsonify({"msg": "Starship removed from favorites"}), 200
 
     except Exception as e:
         return jsonify({"msg": "Error retrieving user or starship", "details": str(e)}), 500
+
+# -----------------------------------Routes for admin-----------------------------------
+@api.route('/admin/users', methods=['GET', 'DELETE'])
+@jwt_required()
+@admin_required
+def admins_users_management():
+    try:
+        current_user_id = int(get_jwt_identity())
+        current_user = User.query.get(current_user_id)
+
+        if not current_user or not current_user.is_admin:
+            return jsonify({"msg": "Unauthorized access"}), 403
+        
+        if request.method == 'GET':
+            users = User.query.all()
+            return jsonify([user.serialize() for user in users]), 200
+        
+        elif request.method == 'DELETE':
+            data = request.get_json()
+            user_id = data.get('user_id')
+            
+            if not user_id:
+                return jsonify({"msg": "User ID is required"}), 400
+            
+            user_to_delete = User.query.get(user_id)
+            if not user_to_delete:
+                return jsonify({"msg": "User not found"}), 404
+            
+            if user_to_delete.is_admin:
+                return jsonify({"msg": "Cannot delete an admin user"}), 403
+            
+            # Delete the user and their favorites
+            db.session.execute(
+                favorites_characters.delete().where(
+                    favorites_characters.c.user_id == user_id
+                )
+            )
+            db.session.execute(
+                favorites_planets.delete().where(
+                    favorites_planets.c.user_id == user_id
+                )
+            )
+            db.session.execute(
+                favorites_starships.delete().where(
+                    favorites_starships.c.user_id == user_id
+                )
+            )
+            
+            db.session.delete(user_to_delete)
+            db.session.commit()
+            
+            return jsonify({"msg": "User deleted successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"msg": "Error retrieving users", "details": str(e)}), 500

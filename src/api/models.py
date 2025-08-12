@@ -40,6 +40,7 @@ class User(db.Model):
     first_name: Mapped[str] = mapped_column(String(50), nullable=False)
     last_name: Mapped[str] = mapped_column(String(50), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     subcription_date: Mapped[Optional[date]] = mapped_column(Date)
 
     def serialize(self):
@@ -50,6 +51,7 @@ class User(db.Model):
             "first_name": self.first_name,
             "last_name": self.last_name,
             "is_active": self.is_active,
+            "is_admin": self.is_admin,
             "subcription_date": self.subcription_date.isoformat() if self.subcription_date else None,
             # do not serialize the password, its a security breach
         }
